@@ -1,9 +1,13 @@
 import os
 import logging
+import time
 
 from datetime import datetime
 
 from .experiment_dir_generator import make_exp_dir
+
+# TODO: figure out it later
+from torch.utils.data import DataLoader
 
 logging.basicConfig(level=20)
 
@@ -35,8 +39,15 @@ class Experiment:
 
         self._approach = self._approach_factory.create(**self._sets['approach'])
 
+        logging.info('Initialize data generators...')
         self._gen_train = self._datagen_factory.create(**self._sets['datagen']['train'])
         self._gen_val = self._datagen_factory.create(**self._sets['datagen']['val'])
+        logging.info('Initialization complete.')
+
+        self._data_loaders = {
+            'train': DataLoader(self._gen_train, batch_size=self._gen_train.batch_size, shuffle=True, num_workers=0),
+            'val': DataLoader(self._gen_val, batch_size=self._gen_val.batch_size, shuffle=True, num_workers=0)
+        }
 
         logging.info('Experiment initialized.')
 
@@ -49,17 +60,52 @@ class Experiment:
         with open(os.path.join(self._this_exp_dir, 'flag.complete'), 'w') as fp:
             fp.write('Experiment completed at: {}'.format(datetime.now().strftime("%Y%m%d_%H%M%S")))
 
-        # TODO: aborted flag
+        # TODO: aborted flag file to the experiment directory
 
     def _train_loop(self):
-        for e in range(self._sets['optimizer']['epochs']):
-            logging.info('Epoch: {}'.format(e))
+        # ?
+        # best_model_wts = copy.deepcopy(model.state_dict())
+        # best_loss = 1e10
 
-            for step in range(self._sets['optimizer']['iterations_per_epoch']):
-                logging.info('Train step: [{}] {}'.format(e, step))
+        step = 0
+        stop = False
 
-                x, y = self._gen_train.next_batch()
-                self._approach.train_on_batch(x, y)
+        for epoch in range(self._sets['optimizer']['epochs']):
+            if stop:
+                break
+            logging.info('Epoch: {}'.format(epoch))
+
+            since = time.time()
+
+            # Each epoch has a training and validation phase
+            for phase in ['train', 'val']:
+                if stop:
+                    break
+
+                self._approach.set_mode(phase)
+
+                for inputs, labels in self._data_loaders[phase]:
+                    step += 1
+                    logging.info('Train step: [{}] {}'.format(epoch, step))
+                    if step == self._sets['optimizer']['stopping_step']:
+                        break
+                    readings = self._approach.train_on_batch(inputs, labels)
+                    # readings = '\n' + readings + '\n'
+                    logging.info(readings)
+
+                if phase == 'val':
+                    self.evaluate(self._data_loaders['val'])
+                    eval_res = self.get_laset_evaluation()
+
+                    logging.info('-' * 20)
+                    logging.info('Evaluation results for epoch: {}'.format(epoch))
+                    logging.info(eval_res)
+                    logging.info('-' * 20)
+
+                    self._approach.save_checkpoint(epoch)
+
+            time_elapsed = time.time() - since
+            logging.info('{:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
     def perform(self):
         self._train_loop()
