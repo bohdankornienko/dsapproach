@@ -1,9 +1,11 @@
 import os
 import logging
 import time
+import yaml
 
 from datetime import datetime
 
+from mscocosol.utils.general import pretty_dict_as_string
 from .experiment_dir_generator import make_exp_dir
 
 # TODO: figure out it later
@@ -24,7 +26,7 @@ class Experiment:
 
         logging.info('-'*20)
         logging.info('Settings used for the experiment')
-        logging.info(self._sets)
+        logging.info((pretty_dict_as_string(self._sets)))
         logging.info('-'*20)
 
         self._initialize()
@@ -37,16 +39,23 @@ class Experiment:
         logging.info('This experiment is being stored in the following directory: {}'.format(self._this_exp_dir))
         logging.info('Experiment directory has been created.')
 
+        with open(os.path.join(self._this_exp_dir, 'sets.yaml'), 'w') as fp:
+            yaml.dump(self._sets, fp)
+
+        self._sets['approach']['this_exp_dir'] = self._this_exp_dir
+
         self._approach = self._approach_factory.create(**self._sets['approach'])
 
         logging.info('Initialize data generators...')
         self._gen_train = self._datagen_factory.create(**self._sets['datagen']['train'])
+        logging.info('Train data get summary: {}'.format(self._gen_train.get_summary()))
         self._gen_val = self._datagen_factory.create(**self._sets['datagen']['val'])
+        logging.info('Validation data get summary: {}'.format(self._gen_val.get_summary()))
         logging.info('Initialization complete.')
 
         self._data_loaders = {
-            'train': DataLoader(self._gen_train, batch_size=self._gen_train.batch_size, shuffle=True, num_workers=0),
-            'val': DataLoader(self._gen_val, batch_size=self._gen_val.batch_size, shuffle=True, num_workers=0)
+            'train': DataLoader(self._gen_train, batch_size=self._gen_train.batch_size, shuffle=True, num_workers=3),
+            'val': DataLoader(self._gen_val, batch_size=self._gen_val.batch_size, shuffle=True, num_workers=3)
         }
 
         logging.info('Experiment initialized.')
@@ -54,6 +63,7 @@ class Experiment:
     def _finalize(self):
         logging.info('Experiment finalized.')
 
+        # TODO: time when experiment started
         # TODO: add total time for experiment
         # TODO: add last epoch, iteration (useful for aborted flag)
 
@@ -63,14 +73,10 @@ class Experiment:
         # TODO: aborted flag file to the experiment directory
 
     def _train_loop(self):
-        # ?
-        # best_model_wts = copy.deepcopy(model.state_dict())
-        # best_loss = 1e10
-
         step = 0
         stop = False
 
-        for epoch in range(self._sets['optimizer']['epochs']):
+        for epoch in range(1, self._sets['approach']['optimizer']['epochs'] + 1):
             if stop:
                 break
             logging.info('Epoch: {}'.format(epoch))
@@ -87,15 +93,16 @@ class Experiment:
                 for inputs, labels in self._data_loaders[phase]:
                     step += 1
                     logging.info('Train step: [{}] {}'.format(epoch, step))
-                    if step == self._sets['optimizer']['stopping_step']:
+                    if step == self._sets['approach']['optimizer']['stopping_step']:
+                        stop = True
                         break
                     readings = self._approach.train_on_batch(inputs, labels)
                     # readings = '\n' + readings + '\n'
                     logging.info(readings)
 
                 if phase == 'val':
-                    self.evaluate(self._data_loaders['val'])
-                    eval_res = self.get_laset_evaluation()
+                    self._approach.evaluate()
+                    eval_res = self._approach.get_last_evaluation()
 
                     logging.info('-' * 20)
                     logging.info('Evaluation results for epoch: {}'.format(epoch))

@@ -1,6 +1,7 @@
 import os
 import argparse
 import logging
+import shutil
 
 from glob import glob
 
@@ -21,7 +22,7 @@ def clean_exp_dir(exp_dir):
         to_remove = False
 
         if is_dir and is_not_complete:
-            os.rmdir(directory)
+            shutil.rmtree(directory)
             to_remove = True
             dirs_removed += 1
 
