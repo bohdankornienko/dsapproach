@@ -53,9 +53,10 @@ class Experiment:
         logging.info('Validation data get summary: {}'.format(self._gen_val.get_summary()))
         logging.info('Initialization complete.')
 
+        number_of_workers = 1
         self._data_loaders = {
-            'train': DataLoader(self._gen_train, batch_size=self._gen_train.batch_size, shuffle=True, num_workers=3),
-            'val': DataLoader(self._gen_val, batch_size=self._gen_val.batch_size, shuffle=True, num_workers=3)
+            'train': DataLoader(self._gen_train, batch_size=self._gen_train.batch_size, shuffle=True, num_workers=number_of_workers),
+            'val': DataLoader(self._gen_val, batch_size=self._gen_val.batch_size, shuffle=True, num_workers=number_of_workers)
         }
 
         logging.info('Experiment initialized.')
@@ -75,6 +76,8 @@ class Experiment:
     def _train_loop(self):
         step = 0
         stop = False
+
+        latest_evaluations = {'train': None, 'val': None}
 
         for epoch in range(1, self._sets['approach']['optimizer']['epochs'] + 1):
             if stop:
@@ -97,22 +100,30 @@ class Experiment:
                         stop = True
                         break
                     readings = self._approach.train_on_batch(inputs, labels)
-                    # readings = '\n' + readings + '\n'
                     logging.info(readings)
 
                 if phase == 'val':
-                    self._approach.evaluate()
-                    eval_res = self._approach.get_last_evaluation()
-
-                    logging.info('-' * 20)
-                    logging.info('Evaluation results for epoch: {}'.format(epoch))
-                    logging.info(eval_res)
-                    logging.info('-' * 20)
-
+                    logging.info('Saving checkpoint...')
                     self._approach.save_checkpoint(epoch)
+                    logging.info('Checkpoint saving complete.')
 
             time_elapsed = time.time() - since
             logging.info('{:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+
+            self._approach.set_mode('inference')
+            logging.info('Performing evaluation...')
+            # TODO: should I spend time for evaluation on full train set?
+            for phase in ['train', 'val']:
+                logging.info('Mode: {}'.format(phase))
+                evaluations = self._approach.evaluate(self._data_loaders[phase])
+                logging.info('Evaluations {} -> {}'.format(phase, evaluations))
+
+                latest_evaluations[phase] = evaluations.copy()
+
+            # TODO: at the end of each epoch make several random prediction and store them into experiment directory
+
+        with open(os.path.join(self._this_exp_dir, 'readings.yaml'), 'w') as fp:
+            yaml.dump(latest_evaluations, fp, default_flow_style=False)
 
     def perform(self):
         self._train_loop()
