@@ -2,6 +2,7 @@ import os
 import logging
 import time
 import yaml
+import sys
 
 from datetime import datetime
 
@@ -79,7 +80,15 @@ class Experiment:
 
         latest_evaluations = {'train': None, 'val': None}
 
+        logging.info('Train loop started...')
+        sys.stdout.flush()
+
         for epoch in range(1, self._sets['approach']['optimizer']['epochs'] + 1):
+            if os.path.exists(os.path.join(self._this_exp_dir, 'terminate')):
+                logging.info('Process termination file detected!')
+                logging.info('Initiating training stopping procedure...')
+                stop = True
+
             if stop:
                 break
             logging.info('Epoch: {}'.format(epoch))
@@ -110,10 +119,11 @@ class Experiment:
             time_elapsed = time.time() - since
             logging.info('{:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
+            # TODO: separate method
             self._approach.set_mode('inference')
             logging.info('Performing evaluation...')
-            # TODO: should I spend time for evaluation on full train set?
-            for phase in ['train', 'val']:
+            # TODO: make evaluation on both phases but using only 10% of samples
+            for phase in ['val']:
                 logging.info('Mode: {}'.format(phase))
                 evaluations = self._approach.evaluate(self._data_loaders[phase])
                 logging.info('Evaluations {} -> {}'.format(phase, evaluations))
@@ -122,6 +132,7 @@ class Experiment:
 
             # TODO: at the end of each epoch make several random prediction and store them into experiment directory
 
+        # TODO: do evaluation on all sets (train, val, test) in the end of training procedure
         with open(os.path.join(self._this_exp_dir, 'readings.yaml'), 'w') as fp:
             yaml.dump(latest_evaluations, fp, default_flow_style=False)
 
